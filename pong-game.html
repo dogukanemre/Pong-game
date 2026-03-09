@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pong Oyunu - Neon</title>
+    <style>
+        * {
+            touch-action: none;
+        }
+        body {
+            margin: 0;
+            padding: 10px;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a0033 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #0a0a15;
+            border: 3px solid #00FFFF;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.6), 0 0 60px rgba(255, 0, 255, 0.3);
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="oyunEkrani"></canvas>
+
+    <script>
+        // Responsive canvas sizing
+        const canvas = document.getElementById("oyunEkrani");
+        
+        function canvasBoyutuAyarla() {
+            let genislik = window.innerWidth - 20;
+            let yukseklik = window.innerHeight - 20;
+            
+            // Dikey format (9:16 oranı - telefon uyumlu)
+            let maxGenislik = Math.min(genislik, 350);
+            let maxYukseklik = Math.min(yukseklik, 600);
+            
+            // Uygun boyut bul (9:16 oranını koru)
+            if (maxYukseklik / maxGenislik > 1.77) {
+                // Genişlik sınırlayıcı
+                canvas.width = maxGenislik;
+                canvas.height = maxGenislik * 1.7777;
+            } else {
+                // Yükseklik sınırlayıcı
+                canvas.height = maxYukseklik;
+                canvas.width = maxYukseklik / 1.7777;
+            }
+        }
+
+        canvasBoyutuAyarla();
+        window.addEventListener('resize', canvasBoyutuAyarla);
+        
+        const ctx = canvas.getContext("2d");
+
+        // Oyun durumu
+        let oyunDurumu = "baslamadi"; // baslamadi, oynasinyor, bitti
+        const KAZANMA_PUANI = 3;
+        let vurusAyaci = 0; // Topu kaç kez vurduk
+
+        // Top objesi
+        const topObj = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            yaricap: canvas.width * 0.0125,
+            hiz: 5.5,
+            hizX: 5.5,
+            hizY: 5.5,
+            renk: "#00FFFF"
+        };
+
+        // Oyuncu (Sen) - AŞAĞIDA
+        const oyuncu = {
+            x: (canvas.width - canvas.width * 0.18) / 2,
+            y: canvas.height - canvas.height * 0.018 - 5,
+            genislik: canvas.width * 0.18,
+            yukseklik: canvas.height * 0.018,
+            skor: 0,
+            renk: "#00FF41"
+        };
+
+        // Bilgisayar (Rakip) - YUKARDA
+        const bilgisayar = {
+            x: (canvas.width - canvas.width * 0.18) / 2,
+            y: 5,
+            genislik: canvas.width * 0.18,
+            yukseklik: canvas.height * 0.018,
+            skor: 0,
+            renk: "#FF006B"
+        };
+
+        // Çizim fonksiyonları
+        function dikdortgenCiz(x, y, w, h, renk, isBorder = false) {
+            if(isBorder) {
+                ctx.strokeStyle = renk;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, w, h);
+            } else {
+                ctx.fillStyle = renk;
+                ctx.fillRect(x, y, w, h);
+            }
+        }
+
+        function daireCiz(x, y, r, renk) {
+            ctx.fillStyle = renk;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2, true);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function metinYaz(metin, x, y, boyut = 45, renk = "#FFFFFF") {
+            ctx.fillStyle = renk;
+            ctx.font = `bold ${boyut}px Arial`;
+            ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+            ctx.shadowBlur = 5;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(metin, x, y);
+            ctx.shadowBlur = 0;
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+        }
+
+        function baslangicEkraniCiz() {
+            dikdortgenCiz(0, 0, canvas.width, canvas.height, "#0a0a15");
+            metinYaz("PONG GAME", canvas.width/2, canvas.height * 0.25, 40, "#00FFFF");
+            // Başla butonu
+            let butonGenislik = canvas.width * 0.35;
+            let butonYukseklik = canvas.height * 0.08;
+            dikdortgenCiz(canvas.width/2 - butonGenislik/2, canvas.height * 0.55 - butonYukseklik/2, butonGenislik, butonYukseklik, "#000000");
+            dikdortgenCiz(canvas.width/2 - butonGenislik/2, canvas.height * 0.55 - butonYukseklik/2, butonGenislik, butonYukseklik, "#FF006B", true);
+            metinYaz("BAŞLA", canvas.width/2, canvas.height * 0.55, 24, "#FFFFFF");
+        }
+
+        function kazanmaEkraniCiz() {
+            dikdortgenCiz(0, 0, canvas.width, canvas.height, "#0a0a15");
+            if(oyuncu.skor >= KAZANMA_PUANI) {
+                metinYaz("KAZANDINIZ!", canvas.width/2, canvas.height * 0.25, 40, "#00FF41");
+            } else {
+                metinYaz("KAYBETTİNİZ!", canvas.width/2, canvas.height * 0.25, 40, "#FF006B");
+            }
+            // Yeniden Başlat butonu
+            let butonGenislik = canvas.width * 0.42;
+            let butonYukseklik = canvas.height * 0.08;
+            dikdortgenCiz(canvas.width/2 - butonGenislik/2, canvas.height * 0.55 - butonYukseklik/2, butonGenislik, butonYukseklik, "#000000");
+            dikdortgenCiz(canvas.width/2 - butonGenislik/2, canvas.height * 0.55 - butonYukseklik/2, butonGenislik, butonYukseklik, "#00FF41", true);
+            metinYaz("YENIDEN BAŞLAT", canvas.width/2, canvas.height * 0.55, 18, "#FFFFFF");
+        }
+
+        function agCiz() {
+            for(let i = 0; i <= canvas.width; i+=15) {
+                dikdortgenCiz(i, canvas.height/2 - 1, 10, 2, "#FF00FF");
+            }
+        }
+
+        // Fare ve dokunma hareketi dinleme - X ekseni
+        function oyuncuHareketEt(clientX) {
+            let rect = canvas.getBoundingClientRect();
+            oyuncu.x = clientX - rect.left - oyuncu.genislik/2;
+            // Sınırları kontrol et
+            if(oyuncu.x < 0) oyuncu.x = 0;
+            if(oyuncu.x + oyuncu.genislik > canvas.width) oyuncu.x = canvas.width - oyuncu.genislik;
+        }
+        
+        canvas.addEventListener("mousemove", function(oyunOlayi) {
+            oyuncuHareketEt(oyunOlayi.clientX);
+        });
+        
+        canvas.addEventListener("touchmove", function(oyunOlayi) {
+            oyunOlayi.preventDefault();
+            if(oyunOlayi.touches.length > 0) {
+                oyuncuHareketEt(oyunOlayi.touches[0].clientX);
+            }
+        }, false);
+
+        // Topu sıfırlama (Biri sayı aldığında)
+        function topSifirla() {
+            topObj.x = canvas.width / 2;
+            topObj.y = canvas.height / 2;
+            topObj.hizX = -topObj.hizX;
+            topObj.hiz = 5.5;
+            vurusAyaci = 0; // Vuruş sayacını sıfırla
+        }
+
+        // Çarpışma kontrolü
+        function carpisma(b, p) {
+            p.ust = p.y;
+            p.alt = p.y + p.yukseklik;
+            p.sol = p.x;
+            p.sag = p.x + p.genislik;
+
+            b.ust = b.y - b.yaricap;
+            b.alt = b.y + b.yaricap;
+            b.sol = b.x - b.yaricap;
+            b.sag = b.x + b.yaricap;
+
+            return p.sol < b.sag && p.ust < b.alt && p.sag > b.sol && p.alt > b.ust;
+        }
+
+        // Oyun matematiği ve güncellemeler (devam)
+        function guncelle() {
+            if(oyunDurumu !== "oynasinyor") return;
+
+            // Topun hareket etmesi
+            topObj.x += topObj.hizX;
+            topObj.y += topObj.hizY;
+
+            // Bilgisayarın geliştirilmiş yapay zekası (Daha hızlı hareket)
+            bilgisayar.x += ((topObj.x - (bilgisayar.x + bilgisayar.genislik/2))) * 0.25;
+            
+            // Bilgisayar sınırları kontrol et
+            if(bilgisayar.x < 0) bilgisayar.x = 0;
+            if(bilgisayar.x + bilgisayar.genislik > canvas.width) bilgisayar.x = canvas.width - bilgisayar.genislik;
+
+            // Topun sol ve sağ duvarlardan sekmesi
+            if(topObj.x - topObj.yaricap < 0 || topObj.x + topObj.yaricap > canvas.width) {
+                topObj.hizX = -topObj.hizX;
+            }
+
+            // Topun hangi çubuğa çarptığını bulma
+            let vuranOyuncu = (topObj.y < canvas.height/2) ? bilgisayar : oyuncu;
+
+            // Çarpışma varsa topu geri yansıt
+            if(carpisma(topObj, vuranOyuncu)) {
+                let carpmaNoktasi = (topObj.x - (vuranOyuncu.x + vuranOyuncu.genislik/2));
+                carpmaNoktasi = carpmaNoktasi / (vuranOyuncu.genislik/2);
+                let aci = (Math.PI/4) * carpmaNoktasi;
+
+                let yon = (topObj.y < canvas.height/2) ? 1 : -1;
+                topObj.hizY = yon * topObj.hiz * Math.cos(aci);
+                topObj.hizX = topObj.hiz * Math.sin(aci);
+
+                // Vuruş sayacını arttır
+                vurusAyaci++;
+                
+                // 2. vuruştan sonra top hızlanır
+                if(vurusAyaci > 1) {
+                    topObj.hiz += 0.3;
+                }
+            }
+
+            // Skor güncelleme
+            if(topObj.y - topObj.yaricap < 0) {
+                oyuncu.skor++;
+                topSifirla();
+                // Kazanma koşulu kontrol
+                if(oyuncu.skor >= KAZANMA_PUANI) {
+                    oyunDurumu = "bitti";
+                }
+            } else if(topObj.y + topObj.yaricap > canvas.height) {
+                bilgisayar.skor++;
+                topSifirla();
+                // Kazanma koşulu kontrol
+                if(bilgisayar.skor >= KAZANMA_PUANI) {
+                    oyunDurumu = "bitti";
+                }
+            }
+        }
+
+        // Her şeyi ekrana çizme
+        function oyunEkrani() {
+            if(oyunDurumu === "baslamadi") {
+                baslangicEkraniCiz();
+            } else if(oyunDurumu === "bitti") {
+                kazanmaEkraniCiz();
+            } else {
+                dikdortgenCiz(0, 0, canvas.width, canvas.height, "#0a0a15"); // Siyah arkaplan
+                metinYaz(bilgisayar.skor, canvas.width/4, 50); // Bilgisayar skoru (üsti)
+                metinYaz(oyuncu.skor, 3*canvas.width/4, canvas.height - 20); // Oyuncu skoru (altta)
+                agCiz(); // Ortadaki kesik çizgi
+                dikdortgenCiz(oyuncu.x, oyuncu.y, oyuncu.genislik, oyuncu.yukseklik, oyuncu.renk); // Oyuncu çubuğu
+                dikdortgenCiz(bilgisayar.x, bilgisayar.y, bilgisayar.genislik, bilgisayar.yukseklik, bilgisayar.renk); // Bilgisayar çubuğu
+                daireCiz(topObj.x, topObj.y, topObj.yaricap, topObj.renk); // Top
+            }
+        }
+
+        // Oyunu başlat/yeniden başlat
+        function oyunuBaslat() {
+            // Padelleri yenile
+            oyuncu.x = (canvas.width - canvas.width * 0.18) / 2;
+            oyuncu.y = canvas.height - canvas.height * 0.018 - 5;
+            oyuncu.genislik = canvas.width * 0.18;
+            oyuncu.yukseklik = canvas.height * 0.018;
+            
+            bilgisayar.x = (canvas.width - canvas.width * 0.18) / 2;
+            bilgisayar.y = 5;
+            bilgisayar.genislik = canvas.width * 0.18;
+            bilgisayar.yukseklik = canvas.height * 0.018;
+            
+            oyunDurumu = "oynasinyor";
+            oyuncu.skor = 0;
+            bilgisayar.skor = 0;
+            vurusAyaci = 0; // Vuruş sayacını sıfırla
+            topObj.x = canvas.width / 2;
+            topObj.y = canvas.height / 2;
+            topObj.hiz = 5.5;
+            topObj.hizX = 5.5;
+            topObj.hizY = 5.5;
+            topObj.yaricap = canvas.width * 0.0125;
+        }
+
+        // Ekrana tıklama/dokunma işlemeleri
+        function ekranaBasildi(clientX, clientY) {
+            let rect = canvas.getBoundingClientRect();
+            let x = clientX - rect.left;
+            let y = clientY - rect.top;
+
+            if(oyunDurumu === "baslamadi") {
+                // Başla butonuna basıldı mı?
+                let butonGenislik = canvas.width * 0.35;
+                let butonYukseklik = canvas.height * 0.08;
+                if(x > canvas.width/2 - butonGenislik/2 && x < canvas.width/2 + butonGenislik/2 &&
+                   y > canvas.height * 0.55 - butonYukseklik/2 && y < canvas.height * 0.55 + butonYukseklik/2) {
+                    oyunuBaslat();
+                }
+            } else if(oyunDurumu === "bitti") {
+                // Yeniden Başlat butonuna basıldı mı?
+                let butonGenislik = canvas.width * 0.42;
+                let butonYukseklik = canvas.height * 0.08;
+                if(x > canvas.width/2 - butonGenislik/2 && x < canvas.width/2 + butonGenislik/2 &&
+                   y > canvas.height * 0.55 - butonYukseklik/2 && y < canvas.height * 0.55 + butonYukseklik/2) {
+                    oyunDurumu = "baslamadi";
+                }
+            }
+        }
+
+        canvas.addEventListener("click", function(event) {
+            ekranaBasildi(event.clientX, event.clientY);
+        });
+
+        canvas.addEventListener("touchstart", function(event) {
+            if(event.touches.length > 0) {
+                ekranaBasildi(event.touches[0].clientX, event.touches[0].clientY);
+            }
+        }, false);
+
+        // Oyunu saniyede 60 kare hızında çalıştırma
+        function oyunMotoru() {
+            guncelle();
+            oyunEkrani();
+        }
+
+        setInterval(oyunMotoru, 1000/60);
+
+    </script>
+</body>
+</html>
